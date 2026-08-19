@@ -14,18 +14,17 @@ interface StartScreenProps {
 export function StartScreen({ connected, onStart, onBack }: StartScreenProps) {
   const [name, setName] = useState('');
   const [icon, setIcon] = useState(DEFAULT_PLAYER_ICON);
-  const [totalPlayers, setTotalPlayers] = useState(3);
+  const [totalPlayers, setTotalPlayers] = useState(4);
+  const [partnersMode, setPartnersMode] = useState(true);
   const [simplifiedScoring, setSimplifiedScoring] = useState(false);
   const [difficulty, setDifficulty] = useState<BotDifficulty>(DEFAULT_DIFFICULTY);
+
+  const canPartner = totalPlayers === 4;
 
   function handleStart() {
     // Browsers require a real user gesture before audio can play — this click is it.
     unlockAudio();
-    // Partners mode needs a full table of 4, and there are only two bot personalities (Gus &
-    // Mabel) — a local vs-bots table can only ever seat 3 total, so Partners is never
-    // reachable here. It's only offered once a real 4th seat can exist: the online lobby, via
-    // an open seat for a friend. See LobbyScreen.
-    onStart(name, totalPlayers, icon, { partnersMode: false, simplifiedScoring }, difficulty);
+    onStart(name, totalPlayers, icon, { partnersMode: canPartner && partnersMode, simplifiedScoring }, difficulty);
   }
 
   return (
@@ -41,7 +40,7 @@ export function StartScreen({ connected, onStart, onBack }: StartScreenProps) {
         </p>
 
         <label className="start-screen__label">
-          What should Gus &amp; Mabel call you?
+          What should everyone call you?
           <input
             type="text"
             value={name}
@@ -65,11 +64,20 @@ export function StartScreen({ connected, onStart, onBack }: StartScreenProps) {
             <button type="button" className={totalPlayers === 3 ? 'active' : ''} onClick={() => setTotalPlayers(3)}>
               You vs. 2
             </button>
+            <button type="button" className={totalPlayers === 4 ? 'active' : ''} onClick={() => setTotalPlayers(4)}>
+              You vs. 3
+            </button>
           </div>
-          <span className="start-screen__hint">
-            Want a 2v2 Partners game? That needs a full table of 4 — head to "Play online" and invite three friends
-            (or two friends plus a bot).
-          </span>
+        </label>
+
+        <label className="start-screen__checkbox">
+          <input
+            type="checkbox"
+            checked={canPartner && partnersMode}
+            disabled={!canPartner}
+            onChange={(e) => setPartnersMode(e.target.checked)}
+          />
+          🤝 Partners (2v2 — you and seat 3 vs. the other two){!canPartner && ' — needs a full table of 4'}
         </label>
 
         <label className="start-screen__checkbox">

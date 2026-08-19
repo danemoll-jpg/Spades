@@ -13,9 +13,12 @@ Includes:
   bid-and-make-it game.
 - **Online play**: create a room, share the 4-letter code, and play a real match with up to 3
   friends from anywhere — synced live via Firestore, no server to run or keep alive.
-- Two **heuristic AI bots** with distinct personalities: **Gus** (old-school, unbothered, never
-  rushes) and **Mabel** (runs the table like she's hosted game night every Thursday for forty
-  years). Bot difficulty (Easy/Normal/Hard) is adjustable in both local and online play.
+- **Up to 3 bots at once** — play fully solo against a full table if you want. The first two
+  bot seats get a named personality with their own commentary voice: **Gus** (old-school,
+  unbothered, never rushes) and **Mabel** (runs the table like she's hosted game night every
+  Thursday for forty years). Any further bot seat plays the exact same heuristic strategy,
+  just with a plain generic name and no commentary lines of its own. Bot difficulty
+  (Easy/Normal/Hard) is adjustable in both local and online play.
 - A **"What should I play?" hint button** — powered by the exact same logic the bots use, so
   it never suggests an illegal move.
 - **Snarky commentary** that reacts to what's happening at the table — Nil bids, spades
@@ -41,11 +44,11 @@ separate backend process — the app is a pure static site). The terminal will p
 Vite defaults to `http://localhost:5173`, but picks the next free port (5174, 5175, …) if
 that one's taken.
 
-Local (vs-bots) play works immediately with zero setup. Local play tops out at 3 total seats
-(you + 2 bot personalities, Gus and Mabel) — Partners mode needs a real 4th seat, so it's only
-offered in the online lobby. Online play and the leaderboard need a Firebase project's config
-filled into `packages/client/src/network/firebase.ts` first — see "Deploying" below; until
-then, "Play online" will fail to create/join a room, and the leaderboard button will just show
+Local (vs-bots) play works immediately with zero setup, including a full 4-seat table (you +
+3 bots) with Partners mode on. Online play and the leaderboard need a Firebase project's
+config filled into `packages/client/src/network/firebase.ts` first — see "Deploying" below;
+until then, "Play online" will fail to create/join a room, and the leaderboard button will
+just show
 "Loading…" forever.
 
 ### Tests
@@ -163,11 +166,13 @@ committed directly in `firebase.ts` once you've filled it in.
   swapped in wherever `new TemplateCommentaryProvider()` is currently constructed
   (`useLocalGame.ts`, `useOnlineRoom.ts`), with no changes to game logic.
   See [claude.com/platform/api](https://claude.com/platform/api) for API keys.
-- **More bot personalities**: add entries to `PERSONALITIES` in
+- **More bot personalities**: only Gus and Mabel have a named personality (with their own
+  commentary voice) today; a full table of bots still works past that — the 3rd/4th bot seat
+  just uses a generic name from the pool in `packages/client/src/lib/players.ts`
+  (`GENERIC_BOT_NAMES`/`nextBotName`) and never speaks. To give a 3rd or 4th bot its own
+  personality and commentary lines instead, add an entry to `PERSONALITIES` in
   `packages/engine/src/commentary/personalities.ts` and to `BOT_PERSONALITIES`/
-  `BOT_DISPLAY_NAMES` in `packages/client/src/lib/players.ts` — a 3rd personality would let
-  local (vs-bots) play reach a full table of 4, and with it, Partners mode without needing
-  another human.
+  `BOT_DISPLAY_NAMES` in `packages/client/src/lib/players.ts`.
 - **Real access control on rooms**: swap the "anyone with the code can read/write" Firestore
   rules for Firebase Auth + Cloud Functions doing the actual writes server-side, if this ever
   needs to be trustworthy for strangers rather than just friends.

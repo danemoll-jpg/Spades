@@ -37,7 +37,7 @@ import { DEFAULT_DIFFICULTY } from '../lib/difficulty';
 import { db } from './firebase';
 import { getClientId } from './clientId';
 import { commentaryForEvents } from '../lib/commentary';
-import { buildPlayerConfigs, MAX_SEATS, nextBotPersonality } from '../lib/players';
+import { BOT_DISPLAY_NAMES, buildPlayerConfigs, MAX_SEATS, nextBotName, nextBotPersonality } from '../lib/players';
 
 const COMMENTARY_LIMIT = 30;
 
@@ -126,7 +126,9 @@ export async function addOpenSeat(code: string): Promise<void> {
   });
 }
 
-/** Adds a bot seat, picking the first personality not already at the table. */
+/** Adds a bot seat: the first two get a named personality (Gus, Mabel) with their own
+ * commentary voice; any bot seat beyond that is a plain heuristic opponent with a generic
+ * name and no personality — see lib/players.ts's nextBotName. */
 export async function addBotSeat(code: string): Promise<void> {
   await runTransaction(db, async (tx) => {
     const ref = roomRef(code);
@@ -135,13 +137,10 @@ export async function addBotSeat(code: string): Promise<void> {
     const room = snap.data() as RoomDoc;
     if (room.seats.length >= MAX_SEATS) throw new Error('Table is full.');
     const personality = nextBotPersonality(room.seats.map((s) => s.personality));
-    if (!personality) throw new Error('No more bot personalities available.');
-    tx.update(ref, {
-      seats: [
-        ...room.seats,
-        { id: seatId(), name: personality[0].toUpperCase() + personality.slice(1), type: 'bot', personality, clientId: null },
-      ],
-    });
+    const newSeat: RoomSeat = personality
+      ? { id: seatId(), name: BOT_DISPLAY_NAMES[personality], type: 'bot', personality, clientId: null }
+      : { id: seatId(), name: nextBotName(room.seats.map((s) => s.name)), type: 'bot', clientId: null };
+    tx.update(ref, { seats: [...room.seats, newSeat] });
   });
 }
 

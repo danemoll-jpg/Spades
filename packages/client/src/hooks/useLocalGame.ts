@@ -17,7 +17,7 @@ import {
 import { isBotTurn, stepBot } from '../lib/bot';
 import { commentaryForEvents } from '../lib/commentary';
 import { DEFAULT_DIFFICULTY } from '../lib/difficulty';
-import { BOT_DISPLAY_NAMES, buildPlayerConfigs, MAX_SEATS, nextBotPersonality, SeatConfig } from '../lib/players';
+import { BOT_DISPLAY_NAMES, buildPlayerConfigs, MAX_SEATS, nextBotName, nextBotPersonality, SeatConfig } from '../lib/players';
 import { isMuted, playSound, setMuted, SoundName } from '../lib/audio';
 import { DEFAULT_PLAYER_ICON } from '../lib/icons';
 import { addScoresToGlobalLeaderboard } from '../network/globalLeaderboard';
@@ -119,12 +119,23 @@ export function useLocalGame(): UseLocalGame {
       setNewRecordRanks({});
       const count = Math.min(MAX_SEATS, Math.max(2, Math.floor(totalPlayers) || 4));
       const seats: SeatConfig[] = [{ id: HUMAN_ID, name: humanName.trim() || 'You', isBot: false }];
-      const used: SeatConfig['personality'][] = [];
+      const usedPersonalities: SeatConfig['personality'][] = [];
+      const usedNames: string[] = [seats[0].name];
       for (let i = 0; i < count - 1; i++) {
-        const personality = nextBotPersonality(used);
-        if (!personality) break;
-        used.push(personality);
-        seats.push({ id: `bot${i}`, name: BOT_DISPLAY_NAMES[personality], isBot: true, personality });
+        const personality = nextBotPersonality(usedPersonalities);
+        if (personality) {
+          usedPersonalities.push(personality);
+          const name = BOT_DISPLAY_NAMES[personality];
+          usedNames.push(name);
+          seats.push({ id: `bot${i}`, name, isBot: true, personality });
+        } else {
+          // Both named personalities (Gus, Mabel) are already seated — further bot seats
+          // still play the same heuristic strategy, they just get a generic name and no
+          // commentary voice of their own.
+          const name = nextBotName(usedNames);
+          usedNames.push(name);
+          seats.push({ id: `bot${i}`, name, isBot: true });
+        }
       }
 
       commentaryProvider.current = new TemplateCommentaryProvider();
