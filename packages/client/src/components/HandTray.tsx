@@ -1,4 +1,4 @@
-import { Card as CardType, cardId, PublicGameState } from '@spades/engine';
+import { Card as CardType, cardId, PublicGameState, RANK_VALUES, SUITS } from '@spades/engine';
 import { Card } from './Card';
 import { isCardPlayable, isMyTurn } from '../lib/legality';
 
@@ -7,6 +7,18 @@ interface HandTrayProps {
   state: PublicGameState;
   selectedCardId: string | null;
   onSelect: (id: string) => void;
+}
+
+/** Display order only — grouped by suit (engine's canonical S/H/D/C order, same grouping the
+ * bots' own hand-strength heuristic uses), low to high within each suit. Purely cosmetic:
+ * doesn't touch the engine's hand array or any game state, just how this one component lays
+ * the cards out, so a hand doesn't jump around the screen turn to turn as cards are drawn or
+ * played. */
+function sortedForDisplay(hand: CardType[]): CardType[] {
+  return [...hand].sort((a, b) => {
+    const suitDiff = SUITS.indexOf(a.suit) - SUITS.indexOf(b.suit);
+    return suitDiff !== 0 ? suitDiff : RANK_VALUES[a.rank] - RANK_VALUES[b.rank];
+  });
 }
 
 /** The viewer's own hand — a horizontally scrollable row of cards. Cards that can't legally be
@@ -18,7 +30,7 @@ export function HandTray({ hand, state, selectedCardId, onSelect }: HandTrayProp
   return (
     <div className="hand-tray">
       <div className="hand-tray__scroll">
-        {hand.map((card) => {
+        {sortedForDisplay(hand).map((card) => {
           const id = cardId(card);
           const playable = myTurn && isCardPlayable(state, card);
           return (
