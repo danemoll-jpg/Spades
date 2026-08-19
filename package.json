@@ -1,0 +1,19 @@
+{
+  "name": "spades",
+  "private": true,
+  "version": "0.1.0",
+  "description": "A web version of Spades — bid tricks (or Nil), spades are always trump, bags cost you at 10. Play locally against AI, or online against friends via a shared room code (Firebase-synced). Up to 4 players, any mix of human and AI, with optional 2v2 Partners at exactly 4.",
+  "workspaces": [
+    "packages/engine",
+    "packages/client"
+  ],
+  "scripts": {
+    "build:engine": "npm run build -w packages/engine",
+    "test": "npm run test -w packages/engine",
+    "dev": "npm run build:engine && npm run dev -w packages/client",
+    "build": "npm run build:engine && npm run build -w packages/client"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3"
+  }
+}

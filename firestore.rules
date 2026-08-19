@@ -1,0 +1,29 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Rooms — a room code IS the access control (anyone who has the code, shared out of
+    // band, can read/write it). Basic shape validation only.
+    //
+    // IMPORTANT CAVEAT: a technically determined player could read another seat's hidden
+    // hand directly from this document instead of just the redacted view the UI shows them.
+    // Without Firebase Auth + Cloud Functions doing the actual writes server-side, anyone who
+    // can reach this Firestore project (which just means knowing the config — not a secret,
+    // see src/network/firebase.ts) could call the Firestore SDK/REST API directly. Accepted
+    // tradeoff for a casual game against friends — same tradeoff every other game in the
+    // series makes for hidden hands/cards.
+    match /rooms/{roomCode} {
+      allow read: if true;
+      allow write: if request.resource.data.seats is list
+                   && request.resource.data.seats.size() <= 4;
+    }
+
+    // Global top-10 leaderboard (highest score toward 500 wins) — same shared-document
+    // pattern as every other game in the series.
+    match /leaderboard/{doc} {
+      allow read: if true;
+      allow write: if request.resource.data.entries is list
+                   && request.resource.data.entries.size() <= 10;
+    }
+  }
+}

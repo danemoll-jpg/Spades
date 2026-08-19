@@ -1,0 +1,14 @@
+# Netlify reads this automatically when the site is connected to this repo — no build
+# settings need to be typed into the Netlify UI. This is an npm-workspaces monorepo, so the
+# build has to run from the repo root (installs + builds both packages/engine and
+# packages/client), and only the client's Vite output gets published.
+[build]
+  command = "npm install && npm run build"
+  publish = "packages/client/dist"
+
+# Single-page app: any deep link (e.g. a refresh mid-game) should still serve index.html
+# and let the client-side app take over, instead of Netlify 404ing on an unknown path.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
