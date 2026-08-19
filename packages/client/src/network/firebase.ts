@@ -11,12 +11,12 @@ import { initializeApp } from 'firebase/app';
 import { initializeFirestore } from 'firebase/firestore';
 
 const firebaseConfig = {
-  apiKey: 'REPLACE_ME',
-  authDomain: 'REPLACE_ME.firebaseapp.com',
-  projectId: 'REPLACE_ME',
-  storageBucket: 'REPLACE_ME.firebasestorage.app',
-  messagingSenderId: 'REPLACE_ME',
-  appId: 'REPLACE_ME',
+  apiKey: 'AIzaSyAUcxVqdyRFtMs281P2-zDsA913HX7cRzI',
+  authDomain: 'spades-4626c.firebaseapp.com',
+  projectId: 'spades-4626c',
+  storageBucket: 'spades-4626c.firebasestorage.app',
+  messagingSenderId: '538608133058',
+  appId: '1:538608133058:web:995816b31664ca602fec5b',
 };
 
 const app = initializeApp(firebaseConfig);
