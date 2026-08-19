@@ -180,7 +180,7 @@ export function GameView({
         <HintPanel hint={hint} canRequest={myTurn} onRequest={requestHint} onDismiss={clearHint} />
       </div>
 
-      {me?.hand && publicState.phase === 'playing' && (
+      {me?.hand && (publicState.phase === 'bidding' || publicState.phase === 'playing') && (
         <HandTray hand={me.hand} state={publicState} selectedCardId={null} onSelect={handlePlayCard} />
       )}
 
