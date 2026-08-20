@@ -14,7 +14,7 @@ export interface ScoredAction {
   reason: ReasonTag;
 }
 
-export type ReasonTag = 'onlyOption' | 'safeBid' | 'nilBid' | 'winCheap' | 'duckLow' | 'discardSafe';
+export type ReasonTag = 'onlyOption' | 'safeBid' | 'nilBid' | 'winCheap' | 'duckLow' | 'discardSafe' | 'deferToPartner';
 
 function cardsBySuit(hand: Card[]): Record<Suit, Card[]> {
   const bySuit: Record<Suit, Card[]> = { S: [], H: [], D: [], C: [] };
@@ -119,16 +119,50 @@ function scoreCardPlays(state: GameState, seatIndex: number, legal: PlayCardActi
   const currentWinnerId = trickWinnerPlayerId(state.trick, ledSuit);
   const currentBest = state.trick.find((t) => t.playerId === currentWinnerId)!.card;
 
+  // Partners mode only: is the trick currently sitting with my own teammate? Group membership
+  // (not the mode flag) is what decides this — Cutthroat groups are solo (see buildGroups), so
+  // partnerId is always undefined there and none of the logic below ever engages.
+  const myGroup = state.groups.find((g) => g.playerIds.includes(player.id))!;
+  const partnerId = myGroup.playerIds.find((id) => id !== player.id);
+  const partnerIsWinning = partnerId !== undefined && currentWinnerId === partnerId;
+  // Seats still to act after mine this trick — if that's zero, the trick is already safe the
+  // instant I play (nobody left to snipe it from my partner), so there's never anything to
+  // defend. Otherwise it's genuinely at some unknown risk from whoever plays after me.
+  const seatsStillToAct = state.players.length - state.trick.length - 1;
+  const groupTricksStillNeeded = myGroup.playerIds
+    .map((id) => state.players.find((p) => p.id === id)!)
+    .reduce((sum, m) => sum + (typeof m.bid === 'number' ? Math.max(0, m.bid - m.tricksWon) : 0), 0);
+  // Overtaking a partner who's already winning only ever makes sense as insurance against
+  // someone still to act snatching the trick away from the team — and that insurance is only
+  // worth spending a good card on when either the team still needs the trick toward its
+  // COMBINED bid (bidding/scoring is per-group, not per-player — see scoreGroupHand — so it
+  // doesn't matter which of us actually takes it) or bags don't cost anything this match
+  // anyway (simplifiedScoring), so there's no downside to playing it safe. Otherwise: never
+  // take a trick my partner's already got locked up — no benefit either way, just a wasted
+  // card that could've won something later.
+  const worthDefendingPartnersTrick = seatsStillToAct > 0 && (state.rules.simplifiedScoring || groupTricksStillNeeded > 0);
+
   return legal.map((a) => {
     const wins = cardBeats(a.card, currentBest, ledSuit);
 
     if (iAmNil) {
       // Winning is the one thing a Nil bidder can never afford — heavily penalized even when
       // it's the only card that follows suit (isActionLegal already guarantees this list is
-      // never empty, so "least bad" still gets picked).
+      // never empty, so "least bad" still gets picked). Applies even when it's my own partner
+      // winning: a Nil bid is a solo promise, not a team one.
       return { action: a, score: wins ? -1000 + RANK_VALUES[a.card.rank] : 1000 - RANK_VALUES[a.card.rank], reason: 'duckLow' };
     }
-    const wantsThisTrick = tricksNeeded > 0;
+
+    const overtakingPartner = wins && partnerIsWinning;
+    if (overtakingPartner && !worthDefendingPartnersTrick) {
+      // My partner already has this trick — taking it myself instead buys the team nothing
+      // (same trick, same team either way) and just burns a card that could win a later one.
+      // Ranked below every legal duck, same as any trick I'm not trying to win; only played
+      // when literally forced (nothing in hand loses to my partner's card either).
+      return { action: a, score: 10 - RANK_VALUES[a.card.rank], reason: 'deferToPartner' };
+    }
+
+    const wantsThisTrick = tricksNeeded > 0 || (overtakingPartner && worthDefendingPartnersTrick);
     if (wins && wantsThisTrick) {
       return { action: a, score: 500 - RANK_VALUES[a.card.rank], reason: 'winCheap' };
     }
