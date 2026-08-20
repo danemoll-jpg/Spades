@@ -21,11 +21,15 @@ import { BOT_DISPLAY_NAMES, buildPlayerConfigs, MAX_SEATS, nextBotName, nextBotP
 import { isMuted, playSound, setMuted, SoundName } from '../lib/audio';
 import { DEFAULT_PLAYER_ICON } from '../lib/icons';
 import { addScoresToGlobalLeaderboard } from '../network/globalLeaderboard';
-import { CommentaryEntry } from './useOnlineRoom';
+import { CommentaryEntry, TrickReveal } from './useOnlineRoom';
 
 const HUMAN_ID = 'human';
 const BOT_THINK_MIN_MS = 350;
 const BOT_THINK_MAX_MS = 650;
+// See TrickReveal (useOnlineRoom.ts) for why this exists: the engine clears a completed trick
+// in the same atomic step that resolves it, so without holding it on screen for a beat here,
+// the 4th card lands and the trick area empties in the same render.
+const TRICK_REVEAL_MS = 1100;
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -45,6 +49,9 @@ export interface UseLocalGame {
   playerIcons: Record<string, string>;
   commentary: CommentaryEntry[];
   hint: MoveHint | null;
+  /** The trick that just finished, held on screen for a beat before the area clears for the
+   * next one — see TrickReveal (useOnlineRoom.ts). Null the rest of the time. */
+  revealedTrick: TrickReveal | null;
   error: string | null;
   muted: boolean;
   toggleMuted: () => void;
@@ -70,6 +77,7 @@ export function useLocalGame(): UseLocalGame {
   const [hint, setHint] = useState<MoveHint | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [muted, setMutedState] = useState(() => isMuted());
+  const [revealedTrick, setRevealedTrick] = useState<TrickReveal | null>(null);
   const commentaryProvider = useRef(new TemplateCommentaryProvider());
   // Remembered so "Play again" (newMatch) can redeal immediately with the same settings
   // instead of dumping the player back at a blank setup screen.
@@ -95,6 +103,18 @@ export function useLocalGame(): UseLocalGame {
     }
   }, []);
 
+  // If `events` includes a trick resolving, hold it on screen for a beat (see TrickReveal in
+  // useOnlineRoom.ts) before letting whatever comes next proceed — the real GameState has
+  // already advanced past it by this point, this only delays what the bot loop does next so a
+  // completed trick doesn't get swept away the instant it's shown.
+  const revealTrickIfComplete = useCallback(async (events: GameEvent[]) => {
+    const trickWon = events.find((e): e is Extract<GameEvent, { type: 'trickWon' }> => e.type === 'trickWon');
+    if (!trickWon) return;
+    setRevealedTrick({ cards: trickWon.cards, winnerId: trickWon.by });
+    await delay(TRICK_REVEAL_MS);
+    setRevealedTrick(null);
+  }, []);
+
   const runBotsToCompletion = useCallback(
     async (from: GameState): Promise<GameState> => {
       let current = from;
@@ -104,10 +124,11 @@ export function useLocalGame(): UseLocalGame {
         current = next;
         setState(current);
         await notifyEvents(newEvents, current);
+        await revealTrickIfComplete(newEvents);
       }
       return current;
     },
-    [notifyEvents],
+    [notifyEvents, revealTrickIfComplete],
   );
 
   const startMatch = useCallback(
@@ -170,14 +191,16 @@ export function useLocalGame(): UseLocalGame {
           const prevLogLength = state.log.length;
           const next = applyAction(state, seatIndex, action);
           setState(next);
-          await notifyEvents(next.log.slice(prevLogLength), next);
+          const newEvents = next.log.slice(prevLogLength);
+          await notifyEvents(newEvents, next);
+          await revealTrickIfComplete(newEvents);
           await runBotsToCompletion(next);
         } catch (err) {
           setError(err instanceof Error ? err.message : 'That move was rejected.');
         }
       })();
     },
-    [state, notifyEvents, runBotsToCompletion],
+    [state, notifyEvents, revealTrickIfComplete, runBotsToCompletion],
   );
 
   const requestHint = useCallback(() => {
@@ -249,6 +272,7 @@ export function useLocalGame(): UseLocalGame {
     playerIcons,
     commentary,
     hint,
+    revealedTrick,
     error,
     muted,
     toggleMuted,

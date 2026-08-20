@@ -13,6 +13,7 @@ import {
   redactState,
   SfxCue,
   TemplateCommentaryProvider,
+  TrickCard,
 } from '@spades/engine';
 import { isBotTurn, stepBot } from '../lib/bot';
 import { commentaryForEvents } from '../lib/commentary';
@@ -44,6 +45,21 @@ export interface CommentaryEntry {
   personality: BotPersonalityId;
   text: string;
 }
+
+/** A trick that just finished, held on screen for TRICK_REVEAL_MS after the engine has already
+ * cleared it internally — the engine resolves a completed trick (score it, sweep it, advance
+ * the leader) as one atomic step, so without this, the 4th card lands and the trick area empties
+ * in the very same render and nobody ever sees all 4 cards at once. This is purely a display
+ * overlay: the real GameState (and everyone's turn) advances instantly and correctly the moment
+ * the trick completes — only the visual is held back a beat. */
+export interface TrickReveal {
+  cards: TrickCard[];
+  winnerId: string;
+}
+
+/** How long a completed trick stays on screen before the area clears for the next one — long
+ * enough to actually read all 4 cards and who won, short enough not to feel like a stall. */
+const TRICK_REVEAL_MS = 1100;
 
 // Deliberately shorter than local play's pause — a single "turn" online can involve several
 // chained bot actions in a row for the other games in the series; Spades doesn't chain (one
@@ -84,6 +100,9 @@ export interface UseOnlineRoom {
   playerIcons: Record<string, string>;
   commentary: CommentaryEntry[];
   hint: MoveHint | null;
+  /** The trick that just finished, held on screen for a beat before the area clears for the
+   * next one — see TrickReveal above. Null the rest of the time. */
+  revealedTrick: TrickReveal | null;
   muted: boolean;
   toggleMuted: () => void;
   sendAction: (action: PlayerAction) => void;
@@ -112,6 +131,7 @@ export function useOnlineRoom(): UseOnlineRoom {
   const [hint, setHint] = useState<MoveHint | null>(null);
   const [dismissedSeqs, setDismissedSeqs] = useState<Set<number>>(new Set());
   const [muted, setMutedState] = useState(() => isMuted());
+  const [revealedTrick, setRevealedTrick] = useState<TrickReveal | null>(null);
 
   const lastSeenLogLength = useRef(0);
   const botLoopRunning = useRef(false);
@@ -138,8 +158,11 @@ export function useOnlineRoom(): UseOnlineRoom {
   const isHost = room?.hostClientId === myClientId;
   const gameState = room?.gameState ?? null;
 
-  // Independently re-derive + play sound cues for any newly-arrived events. Deterministic
-  // given the same event log, so every connected client computing this separately is fine.
+  // Independently re-derive + play sound cues for any newly-arrived events, and hold a just-
+  // completed trick on screen for a beat (see TrickReveal above). Deterministic given the same
+  // event log, so every connected client computing this separately — including which trick to
+  // show and for how long — stays in sync without any of them needing to be "the one driving
+  // it": a spectator client sees the reveal exactly like the players do, off the same snapshot.
   useEffect(() => {
     if (!gameState) {
       lastSeenLogLength.current = 0;
@@ -150,6 +173,14 @@ export function useOnlineRoom(): UseOnlineRoom {
     if (newEvents.length === 0) return;
     const publicNow = mySeatIndex >= 0 ? redactState(gameState, room!.seats[mySeatIndex].id) : null;
     for (const cue of deriveSoundCues(newEvents)) playSound(resolveSoundName(cue, publicNow));
+
+    const trickWon = newEvents.find((e): e is Extract<GameEvent, { type: 'trickWon' }> => e.type === 'trickWon');
+    if (trickWon) {
+      setRevealedTrick({ cards: trickWon.cards, winnerId: trickWon.by });
+      const timer = setTimeout(() => setRevealedTrick(null), TRICK_REVEAL_MS);
+      return () => clearTimeout(timer);
+    }
+    return undefined;
   }, [gameState, mySeatIndex, room]);
 
   // Host's browser drives every bot turn — a bid, or a single card play. Batches consecutive
@@ -186,8 +217,13 @@ export function useOnlineRoom(): UseOnlineRoom {
         batchEvents.push(...newEvents);
 
         if (current.actingSeat !== batchStartSeat || current.phase === 'matchOver' || current.phase === 'handOver') {
+          const trickJustCompleted = batchEvents.some((e) => e.type === 'trickWon');
           await flush();
           batchStartSeat = current.actingSeat;
+          // Give every connected client's snapshot listener (and its own TRICK_REVEAL_MS
+          // overlay) time to actually show the completed trick before a bot-only table races
+          // ahead and overwrites it with the next one.
+          if (trickJustCompleted) await delay(TRICK_REVEAL_MS);
         }
       }
       await flush(); // whatever's left in the batch when a human's turn arrives
@@ -400,6 +436,7 @@ export function useOnlineRoom(): UseOnlineRoom {
     playerIcons,
     commentary,
     hint,
+    revealedTrick,
     muted,
     toggleMuted,
     sendAction,

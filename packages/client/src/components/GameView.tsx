@@ -11,7 +11,7 @@ import { MatchOverScreen } from './MatchOverScreen';
 import { ScoreCard } from './ScoreCard';
 import { SoundToggle } from './SoundToggle';
 import { TrickArea } from './TrickArea';
-import { CommentaryEntry } from '../hooks/useOnlineRoom';
+import { CommentaryEntry, TrickReveal } from '../hooks/useOnlineRoom';
 import { isMyTurn } from '../lib/legality';
 import { seatAvatar } from '../lib/players';
 
@@ -22,6 +22,9 @@ interface GameViewProps {
   playerIcons: Record<string, string>;
   commentary: CommentaryEntry[];
   hint: MoveHint | null;
+  /** The trick that just finished, held on screen for a beat before the area clears for the
+   * next one — see TrickReveal (useOnlineRoom.ts). */
+  revealedTrick: TrickReveal | null;
   error: string | null;
   connected: boolean;
   muted: boolean;
@@ -44,6 +47,7 @@ export function GameView({
   playerIcons,
   commentary,
   hint,
+  revealedTrick,
   error,
   connected,
   muted,
@@ -162,7 +166,7 @@ export function GameView({
         })}
       </div>
 
-      <TrickArea state={publicState} avatarFor={avatarFor} />
+      <TrickArea state={publicState} avatarFor={avatarFor} revealedTrick={revealedTrick} />
 
       <div className="status-bar">
         <span className="status-bar__prompt">{statusText()}</span>
@@ -191,14 +195,18 @@ export function GameView({
       {showHowToPlay && (
         <HowToPlay onClose={() => setShowHowToPlay(false)} simplifiedScoringInThisMatch={publicState.rules.simplifiedScoring} />
       )}
-      {publicState.phase === 'handOver' && publicState.handSummary && (
+      {/* Both gates below also wait out `revealedTrick` — the hand (or match) can end on the
+          very trick that's currently being held on screen (see TrickReveal), and without this
+          the summary/match-over modal would pop up over it instantly, hiding the last trick
+          the same bug this whole mechanism exists to fix. */}
+      {publicState.phase === 'handOver' && publicState.handSummary && !revealedTrick && (
         <HandSummaryScreen
           key={publicState.handSummary.handNumber}
           state={publicState}
           onReady={() => sendAction({ type: 'readyForNextHand' })}
         />
       )}
-      {publicState.phase === 'matchOver' && (
+      {publicState.phase === 'matchOver' && !revealedTrick && (
         <MatchOverScreen state={publicState} onPlayAgain={newMatch} newRecordRanks={newRecordRanks} />
       )}
     </div>
