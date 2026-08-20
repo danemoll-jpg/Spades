@@ -1,12 +1,16 @@
 // A single shared top-10 leaderboard across every device/room — one Firestore document
-// (leaderboard/global) so every client's realtime listener sees the same list. HIGHEST score
-// wins (same direction as Par Five's dice score — climbing toward the 500-point target), so
-// the board is sorted descending, unlike Mexican Train's/Golf's ascending (lowest-wins)
-// boards. Humans only — see useLocalGame.ts/useOnlineRoom.ts, which filter out bot seats
-// before ever calling addScoresToGlobalLeaderboard, so the board reflects real players, not
-// however well the heuristic bot strategy happens to play. In Partners mode a player's score
-// IS their team's score (both partners credited the same number, same as they both share the
-// win) — see how the caller computes `score` per player.
+// (leaderboard/global) so every client's realtime listener sees the same list. Ranked by
+// FEWEST hands to win, ascending — same "lowest wins" direction as the rest of the series'
+// leaderboards. Final score isn't a useful ranking metric here the way it is in, say, Par
+// Five: a match always ends the moment someone crosses the fixed 500-point target, so every
+// winner's score clusters in the same narrow band just past 500 regardless of how well they
+// actually played — how many HANDS it took to get there is what actually reflects skill (sharp
+// bidding, few bags, converting your bids cleanly). Humans only, and only the WINNING side —
+// see useLocalGame.ts/useOnlineRoom.ts, which filter to just the winning group's human players
+// (a losing player has no "hands to win" to record) before ever calling
+// addScoresToGlobalLeaderboard, so the board reflects real players' actual wins, not however
+// well the heuristic bot strategy happens to play. In Partners mode both partners share the
+// same win, so both get an entry with the same hand count.
 import { doc, onSnapshot, runTransaction } from 'firebase/firestore';
 import { db } from './firebase';
 
@@ -15,7 +19,8 @@ const MAX_ENTRIES = 10;
 
 export interface LeaderboardEntry {
   name: string;
-  score: number;
+  /** How many hands the match took, start to finish, for this win — lower is better. */
+  handsToWin: number;
   date: string;
   isAi: boolean;
 }
@@ -28,12 +33,13 @@ export function subscribeToGlobalLeaderboard(callback: (entries: LeaderboardEntr
   });
 }
 
-/** results: one finished match's final totals for every player, saved together (ranking
- * everyone against the SAME merged list, not one at a time, so whoever gets processed first
- * doesn't end up with an incorrectly-good rank). Returns an array of ranks (1-based, or null
- * if that score didn't make the top 10) in the same order as `results`. */
+/** results: one finished match's winning hand-count for every human player on the winning
+ * side, saved together (ranking everyone against the SAME merged list, not one at a time, so
+ * whoever gets processed first doesn't end up with an incorrectly-good rank). Returns an array
+ * of ranks (1-based, or null if that result didn't make the top 10) in the same order as
+ * `results`. */
 export async function addScoresToGlobalLeaderboard(
-  results: Array<{ name: string; score: number; isAi: boolean }>,
+  results: Array<{ name: string; handsToWin: number; isAi: boolean }>,
 ): Promise<Array<number | null>> {
   return runTransaction(db, async (tx) => {
     const snap = await tx.get(LEADERBOARD_REF);
@@ -45,12 +51,12 @@ export async function addScoresToGlobalLeaderboard(
       _id: `${Date.now()}-${i}-${Math.random().toString(36).slice(2)}`,
     }));
     const combined = [...existing, ...tagged];
-    combined.sort((a, b) => b.score - a.score); // highest score first — points toward 500
+    combined.sort((a, b) => a.handsToWin - b.handsToWin); // fewest hands first — fastest win ranks best
     const trimmed = combined.slice(0, MAX_ENTRIES);
     tx.set(LEADERBOARD_REF, { entries: trimmed });
     return tagged.map((t) => {
       const madeTheCut = trimmed.some((e) => e._id === t._id);
-      return madeTheCut ? combined.filter((e) => e.score > t.score).length + 1 : null;
+      return madeTheCut ? combined.filter((e) => e.handsToWin < t.handsToWin).length + 1 : null;
     });
   });
 }

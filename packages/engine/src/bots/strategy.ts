@@ -128,17 +128,25 @@ function scoreCardPlays(state: GameState, seatIndex: number, legal: PlayCardActi
       // never empty, so "least bad" still gets picked).
       return { action: a, score: wins ? -1000 + RANK_VALUES[a.card.rank] : 1000 - RANK_VALUES[a.card.rank], reason: 'duckLow' };
     }
-    if (wins) {
-      const wantsThisTrick = tricksNeeded > 0;
-      return {
-        action: a,
-        score: (wantsThisTrick ? 500 : 100) - RANK_VALUES[a.card.rank],
-        reason: 'winCheap',
-      };
+    const wantsThisTrick = tricksNeeded > 0;
+    if (wins && wantsThisTrick) {
+      return { action: a, score: 500 - RANK_VALUES[a.card.rank], reason: 'winCheap' };
     }
-    // Ducking: prefer shedding the HIGHEST card that still loses — better to get rid of a
-    // dangerous card now, while it's free, than hold it and get forced to win with it later.
-    return { action: a, score: RANK_VALUES[a.card.rank], reason: 'discardSafe' };
+    if (!wins) {
+      // Ducking: prefer shedding the LOWEST card that still loses, keeping stronger cards in
+      // hand for tricks they can actually win later — this matters most for spades
+      // specifically, since as trump they only get MORE likely to win a trick as higher ones
+      // get played out (playing a King here right after someone's Ace is pure waste: it can't
+      // win this trick either way, and now it's not around to win a future one as the
+      // new-highest spade).
+      return { action: a, score: 100 - RANK_VALUES[a.card.rank], reason: 'discardSafe' };
+    }
+    // Wins, but the bid's already met (or there was never a numeric bid needing more tricks)
+    // — an extra trick here is a bag, not a gain, so this ranks BELOW every legal duck (never
+    // above, at any rank — a forced Ace is still worse than a free 2 that loses). Still scored
+    // internally by rank so that when winning truly can't be avoided (everything in hand beats
+    // the board), the cheapest winner gets picked over the most wasteful one.
+    return { action: a, score: 10 - RANK_VALUES[a.card.rank], reason: 'winCheap' };
   });
 }
 

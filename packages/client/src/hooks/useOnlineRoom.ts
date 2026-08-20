@@ -110,9 +110,9 @@ export interface UseOnlineRoom {
   clearHint: () => void;
   dismissCommentary: (id: string) => void;
   newMatch: () => void;
-  /** Player id → 1-based all-time rank, for whichever human players' final totals just landed
-   * on the shared top-10 leaderboard. Empty until the host's leaderboard write resolves and
-   * syncs into the room doc. */
+  /** Player id → 1-based all-time rank, for whichever winning human players' hand count just
+   * landed on the shared top-10 leaderboard. Empty until the host's leaderboard write resolves
+   * and syncs into the room doc. */
   newRecordRanks: Record<string, number>;
 }
 
@@ -232,23 +232,20 @@ export function useOnlineRoom(): UseOnlineRoom {
     });
   }, [isHost, code, room, gameState]);
 
-  // Host submits final totals to the shared leaderboard exactly once per finished match —
-  // every connected client sees the same matchOver moment via its own subscription, so
-  // without this host-only gate, a match's scores would get added once PER connected device
+  // Host submits the winning hand count to the shared leaderboard exactly once per finished
+  // match — every connected client sees the same matchOver moment via its own subscription, so
+  // without this host-only gate, a match's result would get added once PER connected device
   // instead of once total.
   useEffect(() => {
     if (!isHost || !code || !gameState || gameState.phase !== 'matchOver' || submittedLeaderboard.current) return;
     submittedLeaderboard.current = true;
-    // Bots don't compete for leaderboard spots — only human results get submitted, so the
-    // board reflects real players, not however well the heuristic bot strategy happens to
-    // play. In Partners mode a player's score IS their team's score (both partners share it).
-    const humans = gameState.players.filter((p) => !p.isBot);
+    // Bots don't compete for leaderboard spots, and neither does the losing side — a loss has
+    // no "hands to win" to record. In Partners mode both partners share the same win, so both
+    // get an entry with the same hand count. See globalLeaderboard.ts for why hand count (not
+    // final score) is the metric.
+    const humans = gameState.players.filter((p) => !p.isBot && gameState.matchWinnerIds.includes(p.id));
     if (humans.length === 0) return;
-    const results = humans.map((p) => ({
-      name: p.name,
-      score: gameState.groups.find((g) => g.playerIds.includes(p.id))!.score,
-      isAi: false,
-    }));
+    const results = humans.map((p) => ({ name: p.name, handsToWin: gameState.handNumber, isAi: false }));
     addScoresToGlobalLeaderboard(results)
       .then((ranks) => {
         const next: Record<string, number> = {};
