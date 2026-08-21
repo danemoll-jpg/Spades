@@ -223,14 +223,32 @@ export function chooseBestAction(state: GameState, seatIndex: number): ScoredAct
 
 export type BotDifficulty = 'easy' | 'normal' | 'hard';
 
+/** Caps how far into the best-to-worst sorted `scored` list a "settle for something worse" pick
+ * is allowed to reach — a fraction of the list length (rounded up, never less than 1), not the
+ * whole thing. Was previously `Math.floor(rng() * scored.length)`, i.e. literally uniform
+ * across EVERY legal action, worst included — for a bid that means the single worst-scored
+ * option in the whole list (bidding 13 on a hand that can't remotely support it, or an unsafe
+ * Nil) was exactly as reachable as a merely-slightly-off one, just because it happened to be
+ * the very last entry in a long sorted list. That's the real bug behind reports like a bot
+ * bidding 13 with an ordinary hand, or bidding 8 and taking zero: not a bad heuristic, but an
+ * unbounded "mistake" mechanic occasionally reaching all the way to the most nonsensical legal
+ * option on the board. Bounding it keeps a difficulty's mistakes plausible — a real off bid or
+ * a genuinely weaker play a human might actually make — without ever fully escaping the
+ * ranking's judgment of what's reasonable. */
+function boundedMistake(scored: ScoredAction[], maxFraction: number, rng: () => number): ScoredAction {
+  const bound = Math.max(1, Math.ceil(scored.length * maxFraction));
+  return scored[Math.floor(rng() * bound)];
+}
+
 /**
  * Picks a bot's actual move for a given difficulty, drawing from the exact same ranking a
  * hint would use — difficulty only changes how consistently the bot acts on it:
  *  - 'hard' always takes the top-ranked option — a genuinely sharp opponent.
- *  - 'normal' usually takes the best option but sometimes settles for the next-best or an
- *    outright weaker one — competent, beatable.
- *  - 'easy' takes the best option less than half the time — forgiving, good for a newer or
- *    younger player.
+ *  - 'normal' usually takes the best option but sometimes settles for the next-best or a
+ *    plausibly weaker one (see boundedMistake) — competent, beatable.
+ *  - 'easy' takes the best option less than half the time, and its mistakes reach a bit
+ *    further into the weaker end of the ranking than 'normal's — forgiving, good for a newer
+ *    or younger player, but still never the single worst option on the board.
  */
 export function chooseBotAction(
   state: GameState,
@@ -246,11 +264,11 @@ export function chooseBotAction(
   if (difficulty === 'normal') {
     if (roll < 0.72) return scored[0];
     if (roll < 0.92 && scored.length > 1) return scored[1];
-    return scored[Math.floor(rng() * scored.length)];
+    return boundedMistake(scored, 0.5, rng);
   }
 
   // easy
   if (roll < 0.35) return scored[0];
   if (roll < 0.65) return scored[Math.floor(rng() * Math.min(3, scored.length))];
-  return scored[Math.floor(rng() * scored.length)];
+  return boundedMistake(scored, 0.7, rng);
 }

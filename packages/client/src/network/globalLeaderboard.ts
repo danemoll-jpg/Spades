@@ -25,11 +25,32 @@ export interface LeaderboardEntry {
   isAi: boolean;
 }
 
+/** True for an entry that can actually be ranked. Guards against a handful of legacy entries
+ * that made it into the shared document with a missing/invalid `handsToWin` (an old write path
+ * bug, since fixed) — `combined.sort((a, b) => a.handsToWin - b.handsToWin)` below returns NaN
+ * for those, which most engines' sort treats as "leave roughly where it already was" rather
+ * than "put it last," so a garbage entry could land anywhere, including displacing real ranks
+ * near the top and skipping past #2 straight to #3/#4 in the UI's tie-aware rank numbering.
+ * Filtering them out — both here (every read) and again in addScoresToGlobalLeaderboard (every
+ * write) — self-heals the shared document the next time anyone wins a match, and keeps the
+ * display honest even before that happens. */
+function isValidEntry<T extends Partial<LeaderboardEntry>>(e: T | null | undefined): e is T {
+  return (
+    !!e &&
+    typeof e.name === 'string' &&
+    e.name.trim().length > 0 &&
+    typeof e.handsToWin === 'number' &&
+    Number.isFinite(e.handsToWin) &&
+    e.handsToWin > 0
+  );
+}
+
 /** Calls callback(entries) immediately with whatever's cached/known, then again on every
  * change. Returns an unsubscribe function. */
 export function subscribeToGlobalLeaderboard(callback: (entries: LeaderboardEntry[]) => void): () => void {
   return onSnapshot(LEADERBOARD_REF, (snap) => {
-    callback(snap.exists() ? (snap.data().entries as LeaderboardEntry[]) || [] : []);
+    const raw = snap.exists() ? (snap.data().entries as LeaderboardEntry[]) || [] : [];
+    callback(raw.filter(isValidEntry));
   });
 }
 
@@ -43,7 +64,10 @@ export async function addScoresToGlobalLeaderboard(
 ): Promise<Array<number | null>> {
   return runTransaction(db, async (tx) => {
     const snap = await tx.get(LEADERBOARD_REF);
-    const existing: (LeaderboardEntry & { _id?: string })[] = snap.exists() ? snap.data().entries || [] : [];
+    const rawExisting: (LeaderboardEntry & { _id?: string })[] = snap.exists() ? snap.data().entries || [] : [];
+    // Drop any legacy invalid entries here too — this is what actually cleans the shared
+    // document up, since every future win writes through this path (see isValidEntry's comment).
+    const existing = rawExisting.filter(isValidEntry);
     const date = new Date().toISOString().slice(0, 10);
     const tagged = results.map((r, i) => ({
       ...r,

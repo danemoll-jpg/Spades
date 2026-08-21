@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { chooseBestAction, createMatch, EngineConfig, GameState, scoreActions } from '../src/index.js';
+import { chooseBestAction, chooseBotAction, createMatch, EngineConfig, GameState, scoreActions } from '../src/index.js';
 
 function makeConfig(playerCount: number): EngineConfig['playerConfigs'] {
   return Array.from({ length: playerCount }, (_, i) => ({ id: `p${i}`, name: `Player ${i}`, isBot: true }));
@@ -130,5 +130,79 @@ describe('scoreCardPlays: not stealing a trick your partner already has', () => 
     // is nothing left to defend against, bag penalty or not.
     expect(best.action).toEqual({ type: 'playCard', card: { suit: 'D', rank: '4' } });
     expect(best.reason).toBe('discardSafe');
+  });
+});
+
+describe('chooseBotAction: "settle for something worse" never reaches the worst option', () => {
+  // The actual bug report this guards against: a 'normal'-difficulty bot occasionally bidding
+  // something wildly implausible (13 on an ordinary hand, or a bid it then completely fails to
+  // make) — traced to the old fallback picking uniformly at random across the ENTIRE
+  // best-to-worst scored list, worst included, instead of a bounded, still-plausible subset.
+  function biddingState(): GameState {
+    // An ordinary, unremarkable hand — nothing here should ever justify a bid anywhere near the
+    // top of the legal range (10-13), which is exactly what the old bug could still produce.
+    const base = createMatch({ playerConfigs: makeConfig(4) });
+    // createMatch deals from dealerSeat 0, so actingSeat lands on seat 1 (the seat left of the
+    // dealer) — set the test hand there rather than assuming seat 0, which getLegalActions
+    // would otherwise silently reject (wrong seat's turn) and return no legal actions at all.
+    return {
+      ...base,
+      phase: 'bidding',
+      players: base.players.map((p, i) =>
+        i === base.actingSeat
+          ? {
+              ...p,
+              hand: [
+                { suit: 'S', rank: '4' },
+                { suit: 'H', rank: '7' },
+                { suit: 'H', rank: '2' },
+                { suit: 'D', rank: '9' },
+                { suit: 'D', rank: '3' },
+                { suit: 'C', rank: '6' },
+                { suit: 'C', rank: '2' },
+                { suit: 'S', rank: '2' },
+                { suit: 'H', rank: '5' },
+                { suit: 'D', rank: '6' },
+                { suit: 'C', rank: '8' },
+                { suit: 'S', rank: '3' },
+                { suit: 'H', rank: '9' },
+              ],
+            }
+          : p,
+      ),
+    };
+  }
+
+  it('never lands on the single worst-scored bid, across the full range of the fallback roll', () => {
+    const state = biddingState();
+    const seat = state.actingSeat;
+    const scored = scoreActions(state, seat);
+    const worstScore = scored[scored.length - 1].score;
+
+    // roll=0.99 forces past both the "take the best" and "take second-best" bands straight into
+    // the bounded-mistake fallback for 'normal' difficulty (see chooseBotAction); sweep the
+    // SECOND rng call (which picks where in the bounded window to land) across its whole range.
+    for (let i = 0; i < 200; i++) {
+      const secondRoll = i / 200;
+      let call = 0;
+      const rng = () => (call++ === 0 ? 0.99 : secondRoll);
+      const chosen = chooseBotAction(state, seat, 'normal', rng)!;
+      expect(chosen.score).toBeGreaterThan(worstScore);
+    }
+  });
+
+  it("'easy' difficulty's mistakes are wider than 'normal's but still never the worst option", () => {
+    const state = biddingState();
+    const seat = state.actingSeat;
+    const scored = scoreActions(state, seat);
+    const worstScore = scored[scored.length - 1].score;
+
+    for (let i = 0; i < 200; i++) {
+      const secondRoll = i / 200;
+      let call = 0;
+      const rng = () => (call++ === 0 ? 0.99 : secondRoll);
+      const chosen = chooseBotAction(state, seat, 'easy', rng)!;
+      expect(chosen.score).toBeGreaterThan(worstScore);
+    }
   });
 });
