@@ -467,6 +467,14 @@ button {
   white-space: nowrap;
 }
 
+.player-chip__count--bags-high {
+  /* Two bags shy of the penalty (see GameView's bagsFor/BAG_PENALTY_THRESHOLD) — a heads-up to
+     start playing safer, not an error state, so still the outlined chip look, just recolored. */
+  border-color: var(--danger-red);
+  color: var(--danger-red);
+  opacity: 1;
+}
+
 .player-chip__total {
   background: var(--gold);
   color: var(--felt-dark);

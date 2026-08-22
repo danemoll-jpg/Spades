@@ -1,5 +1,15 @@
 import { ReactNode, useState } from 'react';
-import { Bid, cardId, HAND_SIZE_BY_PLAYER_COUNT, MoveHint, PlayerAction, PublicGameState, SUIT_NAMES } from '@spades/engine';
+import {
+  BAG_PENALTY,
+  BAG_PENALTY_THRESHOLD,
+  Bid,
+  cardId,
+  HAND_SIZE_BY_PLAYER_COUNT,
+  MoveHint,
+  PlayerAction,
+  PublicGameState,
+  SUIT_NAMES,
+} from '@spades/engine';
 import { BiddingPanel } from './BiddingPanel';
 import { CommentaryFeed } from './CommentaryFeed';
 import { HandSummaryScreen } from './HandSummaryScreen';
@@ -83,6 +93,18 @@ export function GameView({
     return publicState.groups.find((g) => g.playerIds.includes(playerId))?.score ?? 0;
   }
 
+  // Bags reset back to 0 the moment they cross BAG_PENALTY_THRESHOLD (the penalty applies right
+  // then — see scoreGroupHand), so this is always a fresh count toward the NEXT penalty, not a
+  // lifetime total.
+  function bagsFor(playerId: string): number {
+    return publicState.groups.find((g) => g.playerIds.includes(playerId))?.bags ?? 0;
+  }
+
+  function bagsTitle(bags: number): string {
+    if (publicState.rules.simplifiedScoring) return 'Bags this match — no penalty under Simplified scoring';
+    return `${bags} bag${bags === 1 ? '' : 's'} — ${BAG_PENALTY_THRESHOLD - bags} more costs ${BAG_PENALTY} points`;
+  }
+
   function bidLabel(bid: Bid | null): string {
     if (bid === null) return '–';
     return bid === 'nil' ? 'Nil' : String(bid);
@@ -157,6 +179,14 @@ export function GameView({
               </span>
               <span className="player-chip__count" title="Tricks won this hand">
                 🎴{p.tricksWon}
+              </span>
+              <span
+                className={`player-chip__count${
+                  !publicState.rules.simplifiedScoring && bagsFor(p.id) >= BAG_PENALTY_THRESHOLD - 2 ? ' player-chip__count--bags-high' : ''
+                }`}
+                title={bagsTitle(bagsFor(p.id))}
+              >
+                🎒{bagsFor(p.id)}
               </span>
               <span className="player-chip__total" title="Running score">
                 {scoreFor(p.id)}
