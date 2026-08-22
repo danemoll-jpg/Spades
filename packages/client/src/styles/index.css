@@ -30,6 +30,12 @@ body {
   background: radial-gradient(circle at top, var(--felt) 0%, var(--felt-dark) 75%);
   color: var(--text-light);
   min-height: 100vh;
+  /* Blocks native pinch-zoom/double-tap-zoom on the whole page (naming only pan-x/pan-y
+     explicitly excludes them) while still letting ordinary touch-scrolling work everywhere it's
+     needed. The viewport meta's maximum-scale=1/user-scalable=no (index.html) does NOT actually
+     do this on iOS/iPadOS Safari — it's been silently ignored there since iOS 10 for
+     accessibility reasons — so this is the part that actually works. */
+  touch-action: pan-x pan-y;
 }
 
 h1,
