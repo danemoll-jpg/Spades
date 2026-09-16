@@ -26,6 +26,7 @@ const RATIONALE: Record<ReasonTag, string> = {
   duckLow: "You bid Nil — staying under every trick is the whole game now.",
   discardSafe: "You can't win this trick affordably, so shed a card you don't need instead.",
   deferToPartner: "Your partner's already winning this trick — no need to spend a good card taking it from them.",
+  protectNil: "Your partner bid Nil and still has to play — take the trick yourself so they don't get stuck winning it.",
 };
 
 /** Suggests the best move for `seatIndex` using the same heuristic the bots use, in plain

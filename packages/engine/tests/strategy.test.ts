@@ -133,6 +133,101 @@ describe('scoreCardPlays: not stealing a trick your partner already has', () => 
   });
 });
 
+describe('scoreCardPlays: protecting a partner\'s live Nil bid', () => {
+  it('leads a winner instead of discarding low once its own bid is met, while partner\'s Nil is still live', () => {
+    const state = partnersPlayingState(false, {
+      trick: [],
+      actingSeat: 0,
+      players: createMatch({ playerConfigs: makeConfig(4) }).players.map((p, i) => {
+        if (i === 0) return { ...p, bid: 2, tricksWon: 2, hand: [{ suit: 'H', rank: 'A' }, { suit: 'C', rank: '3' }] };
+        if (i === 2) return { ...p, bid: 'nil' as const, tricksWon: 0 };
+        return { ...p, bid: 3 };
+      }),
+    });
+
+    const best = chooseBestAction(state, 0)!;
+    // p0's own bid is already made, so ordinarily it would just shed its lowest card — but its
+    // partner (p2) bid Nil and hasn't busted yet, so every trick p0 takes itself is a trick its
+    // Nil partner never has to worry about being forced into later.
+    expect(best.action).toEqual({ type: 'playCard', card: { suit: 'H', rank: 'A' } });
+    expect(best.reason).toBe('protectNil');
+  });
+
+  it('still just discards low when leading with its own bid met and no Nil partner to protect', () => {
+    const state = partnersPlayingState(false, {
+      trick: [],
+      actingSeat: 0,
+      players: createMatch({ playerConfigs: makeConfig(4) }).players.map((p, i) => {
+        if (i === 0) return { ...p, bid: 2, tricksWon: 2, hand: [{ suit: 'H', rank: 'A' }, { suit: 'C', rank: '3' }] };
+        return { ...p, bid: 3 };
+      }),
+    });
+
+    const best = chooseBestAction(state, 0)!;
+    expect(best.action).toEqual({ type: 'playCard', card: { suit: 'C', rank: '3' } });
+    expect(best.reason).toBe('discardSafe');
+  });
+
+  it('overtakes to win a trick its Nil partner is about to be stuck following, even with its own bid met', () => {
+    const state = partnersPlayingState(false, {
+      trick: [{ playerId: 'p1', card: { suit: 'D', rank: '9' } }],
+      ledSuit: 'D',
+      actingSeat: 0,
+      players: createMatch({ playerConfigs: makeConfig(4) }).players.map((p, i) => {
+        if (i === 0) return { ...p, bid: 2, tricksWon: 2, hand: [{ suit: 'D', rank: 'A' }, { suit: 'D', rank: '4' }] };
+        if (i === 2) return { ...p, bid: 'nil' as const, tricksWon: 0 };
+        return { ...p, bid: 3 };
+      }),
+    });
+
+    const best = chooseBestAction(state, 0)!;
+    // p2 (Nil, still live) hasn't played this trick yet — p0's own bid is met, but ducking
+    // would leave p1's 9 standing as the target p2 has to duck under (or worse, get stuck
+    // topping). Taking it now with the Ace removes that risk entirely.
+    expect(best.action).toEqual({ type: 'playCard', card: { suit: 'D', rank: 'A' } });
+    expect(best.reason).toBe('protectNil');
+  });
+
+  it('rescues a Nil partner who is currently winning the trick, even when nothing else would justify overtaking', () => {
+    const state = partnersPlayingState(false, {
+      trick: [{ playerId: 'p2', card: { suit: 'D', rank: '9' } }],
+      ledSuit: 'D',
+      actingSeat: 0,
+      players: createMatch({ playerConfigs: makeConfig(4) }).players.map((p, i) => {
+        if (i === 0) return { ...p, bid: 2, tricksWon: 2, hand: [{ suit: 'D', rank: 'A' }, { suit: 'D', rank: '4' }] };
+        if (i === 2) return { ...p, bid: 'nil' as const, tricksWon: 0 };
+        return { ...p, bid: 3 };
+      }),
+    });
+
+    const best = chooseBestAction(state, 0)!;
+    // p2's Nil bid is one trick from busting right now — worth overtaking with the Ace even
+    // though p0's own bid is already met and (under the ordinary insurance calculus) there'd
+    // be no reason to spend a good card defending a trick the team doesn't need.
+    expect(best.action).toEqual({ type: 'playCard', card: { suit: 'D', rank: 'A' } });
+    expect(best.reason).toBe('protectNil');
+  });
+
+  it('goes back to normal bag-avoidance once the Nil partner has already busted', () => {
+    const state = partnersPlayingState(false, {
+      trick: [{ playerId: 'p1', card: { suit: 'D', rank: '9' } }],
+      ledSuit: 'D',
+      actingSeat: 0,
+      players: createMatch({ playerConfigs: makeConfig(4) }).players.map((p, i) => {
+        if (i === 0) return { ...p, bid: 2, tricksWon: 2, hand: [{ suit: 'D', rank: 'A' }, { suit: 'D', rank: '4' }] };
+        if (i === 2) return { ...p, bid: 'nil' as const, tricksWon: 1 };
+        return { ...p, bid: 3 };
+      }),
+    });
+
+    const best = chooseBestAction(state, 0)!;
+    // p2 already took a trick, so its Nil bid is already busted — nothing left to protect, so
+    // p0 goes back to plain bag-avoidance and ducks under with its low card.
+    expect(best.action).toEqual({ type: 'playCard', card: { suit: 'D', rank: '4' } });
+    expect(best.reason).toBe('discardSafe');
+  });
+});
+
 describe('chooseBotAction: "settle for something worse" never reaches the worst option', () => {
   // The actual bug report this guards against: a 'normal'-difficulty bot occasionally bidding
   // something wildly implausible (13 on an ordinary hand, or a bid it then completely fails to

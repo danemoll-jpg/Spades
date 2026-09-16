@@ -14,7 +14,15 @@ export interface ScoredAction {
   reason: ReasonTag;
 }
 
-export type ReasonTag = 'onlyOption' | 'safeBid' | 'nilBid' | 'winCheap' | 'duckLow' | 'discardSafe' | 'deferToPartner';
+export type ReasonTag =
+  | 'onlyOption'
+  | 'safeBid'
+  | 'nilBid'
+  | 'winCheap'
+  | 'duckLow'
+  | 'discardSafe'
+  | 'deferToPartner'
+  | 'protectNil';
 
 function cardsBySuit(hand: Card[]): Record<Suit, Card[]> {
   const bySuit: Record<Suit, Card[]> = { S: [], H: [], D: [], C: [] };
@@ -101,15 +109,28 @@ function scoreCardPlays(state: GameState, seatIndex: number, legal: PlayCardActi
   const iAmNil = player.bid === 'nil';
   const tricksNeeded = typeof player.bid === 'number' ? Math.max(0, player.bid - player.tricksWon) : 0;
 
+  // Partners mode only: who's my teammate? Group membership (not the mode flag) is what
+  // decides this — Cutthroat groups are solo (see buildGroups), so partnerId is always
+  // undefined there and none of the nil-protection or trick-defense logic below ever engages.
+  const myGroup = state.groups.find((g) => g.playerIds.includes(player.id))!;
+  const partnerId = myGroup.playerIds.find((id) => id !== player.id);
+  const partner = partnerId !== undefined ? state.players.find((p) => p.id === partnerId) : undefined;
+  // Still-live Nil bid: once a Nil bidder has taken a trick their bid's already busted, so
+  // there's nothing left to protect and normal bag-avoidance should take back over.
+  const partnerNilAlive = partner?.bid === 'nil' && partner.tricksWon === 0;
+
   if (state.trick.length === 0) {
     // Leading a fresh trick: a Nil bidder always leads their lowest, safest card. Otherwise,
-    // lead a probable winner (an Ace or King) cheaply while tricks are still needed;
-    // otherwise just lead low and see what develops.
+    // lead a probable winner (an Ace or King) cheaply while tricks are still needed, or while
+    // a Nil partner is still live — every trick I take off the table myself is one my Nil
+    // partner will never be put at risk of being forced to win later; otherwise just lead low
+    // and see what develops.
     return legal.map((a) => {
       if (iAmNil) return { action: a, score: 1000 - RANK_VALUES[a.card.rank], reason: 'duckLow' };
       const looksLikeAWinner = a.card.suit !== 'S' && (a.card.rank === 'A' || a.card.rank === 'K');
-      if (tricksNeeded > 0 && looksLikeAWinner) {
-        return { action: a, score: 500 - RANK_VALUES[a.card.rank], reason: 'winCheap' };
+      if ((tricksNeeded > 0 || partnerNilAlive) && looksLikeAWinner) {
+        const reason = tricksNeeded > 0 ? 'winCheap' : 'protectNil';
+        return { action: a, score: 500 - RANK_VALUES[a.card.rank], reason };
       }
       return { action: a, score: 200 - RANK_VALUES[a.card.rank], reason: 'discardSafe' };
     });
@@ -118,12 +139,6 @@ function scoreCardPlays(state: GameState, seatIndex: number, legal: PlayCardActi
   const ledSuit = state.ledSuit!;
   const currentWinnerId = trickWinnerPlayerId(state.trick, ledSuit);
   const currentBest = state.trick.find((t) => t.playerId === currentWinnerId)!.card;
-
-  // Partners mode only: is the trick currently sitting with my own teammate? Group membership
-  // (not the mode flag) is what decides this — Cutthroat groups are solo (see buildGroups), so
-  // partnerId is always undefined there and none of the logic below ever engages.
-  const myGroup = state.groups.find((g) => g.playerIds.includes(player.id))!;
-  const partnerId = myGroup.playerIds.find((id) => id !== player.id);
   const partnerIsWinning = partnerId !== undefined && currentWinnerId === partnerId;
   // Seats still to act after mine this trick — if that's zero, the trick is already safe the
   // instant I play (nobody left to snipe it from my partner), so there's never anything to
@@ -154,7 +169,11 @@ function scoreCardPlays(state: GameState, seatIndex: number, legal: PlayCardActi
     }
 
     const overtakingPartner = wins && partnerIsWinning;
-    if (overtakingPartner && !worthDefendingPartnersTrick) {
+    // A Nil partner currently sitting on the lead is one trick away from busting their bid —
+    // always worth overtaking to rescue it, unlike the ordinary "does the team need this"
+    // calculus in worthDefendingPartnersTrick below (which assumes a normal numeric bid).
+    const rescuingNilPartner = overtakingPartner && partnerNilAlive;
+    if (overtakingPartner && !worthDefendingPartnersTrick && !rescuingNilPartner) {
       // My partner already has this trick — taking it myself instead buys the team nothing
       // (same trick, same team either way) and just burns a card that could win a later one.
       // Ranked below every legal duck, same as any trick I'm not trying to win; only played
@@ -162,9 +181,19 @@ function scoreCardPlays(state: GameState, seatIndex: number, legal: PlayCardActi
       return { action: a, score: 10 - RANK_VALUES[a.card.rank], reason: 'deferToPartner' };
     }
 
-    const wantsThisTrick = tricksNeeded > 0 || (overtakingPartner && worthDefendingPartnersTrick);
+    // Once my own bid is covered, winning is normally just a bag — except when my Nil partner
+    // hasn't played this trick yet. Leaving a beatable card as the current best risks them
+    // getting stuck topping it later (forced to follow suit above it, or forced to trump if
+    // void in the led suit), so I keep clearing tricks off the table on their behalf even
+    // after I've got nothing left to gain from it myself.
+    const partnerStillToPlay = partnerId !== undefined && !state.trick.some((t) => t.playerId === partnerId);
+    const protectingNilPartner = partnerNilAlive && partnerStillToPlay && !partnerIsWinning;
+
+    const wantsThisTrick =
+      tricksNeeded > 0 || rescuingNilPartner || (overtakingPartner && worthDefendingPartnersTrick) || protectingNilPartner;
     if (wins && wantsThisTrick) {
-      return { action: a, score: 500 - RANK_VALUES[a.card.rank], reason: 'winCheap' };
+      const reason = tricksNeeded === 0 && (rescuingNilPartner || protectingNilPartner) ? 'protectNil' : 'winCheap';
+      return { action: a, score: 500 - RANK_VALUES[a.card.rank], reason };
     }
     if (!wins) {
       // Ducking: prefer shedding the LOWEST card that still loses, keeping stronger cards in
