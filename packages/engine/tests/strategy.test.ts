@@ -153,6 +153,26 @@ describe('scoreCardPlays: protecting a partner\'s live Nil bid', () => {
     expect(best.reason).toBe('protectNil');
   });
 
+  it('leads its strongest card (not an Ace/King) rather than its weakest, protecting a live Nil partner', () => {
+    // The actual bug report: a bot with its own bid met wins a trick, then on the very next
+    // lead drops its lowest card (e.g. a 4 of Hearts) despite holding much better cards — just
+    // not an Ace or King specifically, so the narrower "looksLikeAWinner" check alone never
+    // caught this case.
+    const state = partnersPlayingState(false, {
+      trick: [],
+      actingSeat: 0,
+      players: createMatch({ playerConfigs: makeConfig(4) }).players.map((p, i) => {
+        if (i === 0) return { ...p, bid: 2, tricksWon: 2, hand: [{ suit: 'H', rank: 'Q' }, { suit: 'H', rank: '4' }] };
+        if (i === 2) return { ...p, bid: 'nil' as const, tricksWon: 0 };
+        return { ...p, bid: 3 };
+      }),
+    });
+
+    const best = chooseBestAction(state, 0)!;
+    expect(best.action).toEqual({ type: 'playCard', card: { suit: 'H', rank: 'Q' } });
+    expect(best.reason).toBe('protectNil');
+  });
+
   it('still just discards low when leading with its own bid met and no Nil partner to protect', () => {
     const state = partnersPlayingState(false, {
       trick: [],

@@ -132,6 +132,14 @@ function scoreCardPlays(state: GameState, seatIndex: number, legal: PlayCardActi
         const reason = tricksNeeded > 0 ? 'winCheap' : 'protectNil';
         return { action: a, score: 500 - RANK_VALUES[a.card.rank], reason };
       }
+      if (partnerNilAlive) {
+        // No safe/cheap winner (Ace/King) on hand to lead — still better to lead my single
+        // strongest card than my weakest: every extra rank narrows how many cards left in
+        // other hands can beat it, so it's more likely to hold up and take the trick off the
+        // table on my Nil partner's behalf, instead of leaving a wide-open low lead that
+        // practically guarantees someone else wins it (and the trick keeps coming back around).
+        return { action: a, score: 300 + RANK_VALUES[a.card.rank], reason: 'protectNil' };
+      }
       return { action: a, score: 200 - RANK_VALUES[a.card.rank], reason: 'discardSafe' };
     });
   }
